@@ -1,7 +1,7 @@
 export function initEngine() {
-  const canvas = document.getElementById("engineCanvas") as HTMLCanvasElement | null;
+  const canvas = document.getElementById("engineCanvas") as HTMLCanvasElement;
   if (!canvas) return () => {};
-  const ctx = canvas.getContext("2d");
+  const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
   if (!ctx) return () => {};
 
   const rpmValue = document.getElementById("rpmValue");
@@ -19,7 +19,7 @@ export function initEngine() {
   const torqueFill = document.getElementById("torqueFill") as HTMLDivElement | null;
   const powerFill = document.getElementById("powerFill") as HTMLDivElement | null;
   const limiterToggle = document.getElementById("limiterToggle");
-  const rpmNeedle = document.getElementById("rpmNeedle");
+  const rpmNeedle = document.getElementById("rpmNeedle") as SVGLineElement | null;
   const rpmDisplayButtons = document.querySelectorAll(
     ".toggle-group[data-group='rpmDisplay'] .toggle"
   );
@@ -61,6 +61,8 @@ export function initEngine() {
   const brakePedal = document.getElementById("brakePedal");
   const brakeFace = document.getElementById("brakeFace");
   const pedalLimit = document.getElementById("pedalLimit");
+
+  type Stroke = "intake" | "compression" | "combustion" | "exhaust";
 
   const engineConfigs = {
     I4: { cylinders: 4, redline: 7000, idle: 850 },
@@ -276,7 +278,7 @@ export function initEngine() {
     if (rpmNeedle) {
       const ratio = clamp(rpm / config.redline, 0, 1);
       const angle = -90 + ratio * 180;
-      (rpmNeedle as SVGLineElement).style.transform = `rotate(${angle}deg)`;
+      rpmNeedle.style.transform = `rotate(${angle}deg)`;
     }
 
     if (timeScaleValue) {
@@ -589,7 +591,6 @@ export function initEngine() {
     const pistonWidth = (pistonAreaWidth - pistonGap * (perRow + 1)) / perRow;
     const pistonHeight = pistonAreaHeight * 0.42;
 
-    const rowPorts: { y: number; ports: number[] }[] = [];
     let cylinderIndex = 0;
     for (let row = 0; row < rows; row += 1) {
       const baseY =
@@ -611,7 +612,6 @@ export function initEngine() {
         baseY + 2,
         config.cylinders
       );
-      const ports: number[] = [];
       for (let col = 0; col < perRow; col += 1) {
         if (cylinderIndex >= config.cylinders) continue;
 
@@ -630,7 +630,6 @@ export function initEngine() {
         const kinematicTop = chamberTop + clearance;
         const chamberHeight = Math.max(chamberBottom - kinematicTop, 20);
         const kinematics = getPistonKinematics(
-          centerX,
           kinematicTop,
           chamberHeight,
           pistonHeight,
@@ -669,8 +668,6 @@ export function initEngine() {
         });
 
         drawValves(centerX, baseY + 10, pistonWidth, valveLift, firing);
-        drawIntakeExhaust(x, baseY, pistonWidth, pistonAreaHeight, valveLift, firing);
-        ports.push(x + pistonWidth + 22);
         if (firing) {
           drawSpark(centerX, baseY + 18);
         }
@@ -685,7 +682,6 @@ export function initEngine() {
 
         cylinderIndex += 1;
       }
-      rowPorts.push({ y: baseY + 34, ports });
     }
 
     rodData.filter((rod) => rod.behind).forEach((rod) => {
@@ -877,7 +873,6 @@ export function initEngine() {
   }
 
   function getPistonKinematics(
-    centerX: number,
     chamberTopY: number,
     chamberHeight: number,
     pistonHeight: number,
@@ -913,7 +908,7 @@ export function initEngine() {
     const strokeIndex = Math.floor(cycleAngle / Math.PI); // 0..3
     const strokePhase = (cycleAngle % Math.PI) / Math.PI; // 0..1 within stroke
 
-    const stroke =
+    const stroke: Stroke =
       strokeIndex === 0
         ? "intake"
         : strokeIndex === 1
@@ -939,7 +934,7 @@ export function initEngine() {
     };
   }
 
-  function drawStrokeLabel(x: number, y: number, stroke: "intake" | "compression" | "combustion" | "exhaust") {
+  function drawStrokeLabel(x: number, y: number, stroke: Stroke) {
     const label = stroke === "intake"
       ? "I"
       : stroke === "compression"
@@ -1084,17 +1079,6 @@ export function initEngine() {
     ctx.fill();
   }
 
-  function drawIntakeExhaust(
-    x: number,
-    baseY: number,
-    width: number,
-    height: number,
-    lift: { intake: number; exhaust: number },
-    firing: boolean
-  ) {
-    // Intentionally left minimal (no external tube lines)
-  }
-
   function drawValveSpring(x: number, yTop: number, yBottom: number, color: string) {
     const coils = 4;
     const height = Math.max(yBottom - yTop, 4);
@@ -1137,56 +1121,12 @@ export function initEngine() {
     }
   }
 
-  function drawExhaustHeader(ports: number[], y: number, xEnd: number, mode: string) {
-    const accent = getAccentColor();
-    const pipeY = y;
-    const tailX = xEnd + 70;
-
-    const collectorX = xEnd + 20;
-    ctx.strokeStyle = "#3b3b46";
-    ctx.lineWidth = 5;
-    ports.forEach((portX, index) => {
-      const offset = (index - (ports.length - 1) / 2) * 6;
-      ctx.beginPath();
-      ctx.moveTo(portX + 6, pipeY);
-      ctx.quadraticCurveTo(portX + 24, pipeY + offset, collectorX - 12, pipeY + offset);
-      ctx.stroke();
-    });
-
-    ctx.strokeStyle = "#5a5a66";
-    ctx.lineWidth = 12;
-    ctx.beginPath();
-    ctx.moveTo(collectorX - 10, pipeY);
-    ctx.lineTo(tailX, pipeY);
-    ctx.stroke();
-
-    ctx.fillStyle = "#2b2b36";
-    ctx.beginPath();
-    ctx.roundRect(collectorX - 18, pipeY - 10, 24, 20, 6);
-    ctx.fill();
-
-    ctx.strokeStyle = mode === "STRAIGHT" ? accent : "#6b7280";
-    ctx.lineWidth = 6;
-    ctx.beginPath();
-    ctx.moveTo(tailX - 8, pipeY);
-    ctx.lineTo(tailX + 12, pipeY);
-    ctx.stroke();
-
-    ctx.strokeStyle =
-      mode === "STRAIGHT" ? "rgba(225, 6, 0, 0.5)" : "rgba(255, 255, 255, 0.12)";
-    ctx.lineWidth = 10;
-    ctx.beginPath();
-    ctx.moveTo(tailX + 2, pipeY);
-    ctx.lineTo(tailX + 18, pipeY);
-    ctx.stroke();
-  }
-
   function drawFlowLayer(
     x: number,
     y: number,
     w: number,
     h: number,
-    stroke: "intake" | "compression" | "combustion" | "exhaust",
+    stroke: Stroke,
     strokePhase: number
   ) {
     ctx.save();
@@ -1366,14 +1306,18 @@ export function initEngine() {
   let pedalActive = false;
   let brakeActive = false;
 
+  function isTouchEvent(event: Event): event is TouchEvent {
+    return "touches" in event;
+  }
+
   function getEventClientY(event: Event): number | null {
     if (event instanceof PointerEvent || event instanceof MouseEvent) {
       return event.clientY;
     }
-    if ("touches" in event && event.touches.length > 0) {
+    if (isTouchEvent(event) && event.touches.length > 0) {
       return event.touches[0].clientY;
     }
-    if ("changedTouches" in event && event.changedTouches.length > 0) {
+    if (isTouchEvent(event) && event.changedTouches.length > 0) {
       return event.changedTouches[0].clientY;
     }
     return null;
@@ -1668,6 +1612,7 @@ function createAudioEngine() {
     const primeEnd = t + primeDuration;
     const crankEnd = primeEnd + crankDuration;
     const igniteTime = crankEnd - 0.12;
+    const flareEnd = crankEnd + flareDuration;
 
     const pumpOsc = audioContext.createOscillator();
     const pumpGain = audioContext.createGain();
@@ -1735,6 +1680,17 @@ function createAudioEngine() {
     cough2Filter.connect(cough2Gain);
     cough2Gain.connect(driveGain);
 
+    const flareOsc = audioContext.createOscillator();
+    const flareGain = audioContext.createGain();
+    flareOsc.type = "sine";
+    flareOsc.frequency.setValueAtTime(90, crankEnd);
+    flareOsc.frequency.exponentialRampToValueAtTime(60, flareEnd);
+    flareGain.gain.setValueAtTime(0.0001, crankEnd);
+    flareGain.gain.linearRampToValueAtTime(0.18, crankEnd + Math.min(flareDuration * 0.2, 0.15));
+    flareGain.gain.exponentialRampToValueAtTime(0.0001, flareEnd);
+    flareOsc.connect(flareGain);
+    flareGain.connect(driveGain);
+
     pumpOsc.start(t);
     pumpOsc.stop(primeEnd + 0.05);
     starterOsc.start(primeEnd);
@@ -1747,6 +1703,8 @@ function createAudioEngine() {
     cough1.stop(igniteTime + 0.2);
     cough2.start(igniteTime + 0.14);
     cough2.stop(igniteTime + 0.32);
+    flareOsc.start(crankEnd);
+    flareOsc.stop(flareEnd + 0.1);
   }
 
   function update({
