@@ -1,8 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { initEngine } from "./engine";
 import EngineStartButton from "./components/EngineStartButton";
+import PowertrainExplorer from "./components/PowertrainExplorer";
 
 export default function App() {
+  const [drawersOpen, setDrawersOpen] = useState(true);
+
   useEffect(() => {
     const cleanup = initEngine();
     return () => cleanup();
@@ -24,23 +27,32 @@ export default function App() {
           IDLE
         </div>
       </header>
-      <div className="summary">
-        <div className="summary-title">Interactive engine sandbox</div>
-        <div className="summary-body">
-          Control throttle and brake, start/stop the engine, and watch the 4‑stroke cycle in
-          real time. Tune audio, shift logic, and gear ratios in Advanced Settings to shape
-          the sound and behavior.
-        </div>
-      </div>
-
-      <main className="main">
-        <section className="panel visual-panel">
-          <div className="panel-title">ENGINE VISUAL</div>
-          <canvas id="engineCanvas" width={640} height={640}></canvas>
-        </section>
-
-        <section className="panel telemetry-panel">
-          <div className="panel-title">TELEMETRY</div>
+      <main className={`workspace ${drawersOpen ? "drawers-visible" : "drawers-hidden"}`}>
+        <PowertrainExplorer />
+        <button
+          className="drawer-rail-toggle"
+          type="button"
+          aria-controls="simulator-drawers"
+          aria-expanded={drawersOpen}
+          onClick={() => setDrawersOpen((open) => !open)}
+        >
+          <span>{drawersOpen ? "HIDE PANELS" : "SHOW PANELS"}</span>
+          <span className="drawer-rail-icon" aria-hidden="true">
+            {drawersOpen ? ">" : "<"}
+          </span>
+        </button>
+        <aside
+          id="simulator-drawers"
+          className={`dashboard-drawers ${drawersOpen ? "is-open" : "is-collapsed"}`}
+          aria-label="Simulator controls and telemetry"
+        >
+        <details className="panel collapsible-panel telemetry-panel">
+          <summary className="drawer-summary">
+            <span className="panel-title">TELEMETRY</span>
+            <span className="drawer-meta">RPM / STATE / TORQUE</span>
+            <span className="drawer-action" aria-hidden="true"></span>
+          </summary>
+          <div className="drawer-content">
           <div className="cards">
             <div className="card rpm-card">
               <div className="card-header">
@@ -151,12 +163,17 @@ export default function App() {
               </div>
             </div>
           </div>
-        </section>
-      </main>
+          </div>
+        </details>
 
-      <section className="panel controls-panel">
-        <div className="panel-title">CONTROLS</div>
-        <div className="controls">
+        <details className="panel collapsible-panel controls-panel" open>
+          <summary className="drawer-summary">
+            <span className="panel-title">CONTROLS</span>
+            <span className="drawer-meta">PEDALS / START / CONFIG / TUNING</span>
+            <span className="drawer-action" aria-hidden="true"></span>
+          </summary>
+          <div className="drawer-content">
+            <div className="controls">
           <div className="controls-primary">
             <div className="control-block">
               <div className="control-label">THROTTLE</div>
@@ -246,6 +263,9 @@ export default function App() {
             <div className="control-block">
               <div className="control-label">TRANSMISSION</div>
               <div className="toggle-group" data-group="trans">
+                <button className="toggle" data-value="R">
+                  R
+                </button>
                 <button className="toggle" data-value="N">
                   N
                 </button>
@@ -262,12 +282,23 @@ export default function App() {
             </div>
           </div>
 
-          <div className="controls-advanced">
-            <div className="advanced-title">ADVANCED SETTINGS</div>
+          <details className="controls-advanced">
+            <summary className="advanced-title">
+              <span>ADVANCED SETTINGS</span>
+              <span className="advanced-state">AUDIO / SHIFT / DRIVE / RATIOS / TIME</span>
+            </summary>
             <div className="advanced-grid">
-              <div className="control-block">
+              <div className="control-block" id="audioBlock" data-audio-mode="SYNTH">
                 <div className="control-label">AUDIO</div>
-                <div className="slider-row">
+                <div className="toggle-group" data-group="audioMode">
+                  <button className="toggle active" data-value="SYNTH">
+                    SYNTH
+                  </button>
+                  <button className="toggle" data-value="COMBUSTION">
+                    COMBUSTION
+                  </button>
+                </div>
+                <div className="slider-row audio-common">
                   <label htmlFor="volume">MASTER</label>
                   <input
                     id="volume"
@@ -281,7 +312,7 @@ export default function App() {
                     30
                   </span>
                 </div>
-                <div className="slider-row">
+                <div className="slider-row audio-synth">
                   <label htmlFor="resonance">RESONANCE</label>
                   <input
                     id="resonance"
@@ -295,7 +326,7 @@ export default function App() {
                     40
                   </span>
                 </div>
-                <div className="slider-row">
+                <div className="slider-row audio-synth">
                   <label htmlFor="rumble">RUMBLE</label>
                   <input
                     id="rumble"
@@ -309,7 +340,7 @@ export default function App() {
                     70
                   </span>
                 </div>
-                <div className="slider-row">
+                <div className="slider-row audio-synth">
                   <label htmlFor="growl">GROWL</label>
                   <input
                     id="growl"
@@ -323,7 +354,7 @@ export default function App() {
                     55
                   </span>
                 </div>
-                <div className="slider-row">
+                <div className="slider-row audio-synth">
                   <label htmlFor="burble">BURBLE</label>
                   <input
                     id="burble"
@@ -337,7 +368,7 @@ export default function App() {
                     60
                   </span>
                 </div>
-                <div className="slider-row">
+                <div className="slider-row audio-synth">
                   <label htmlFor="dirt">DIRT</label>
                   <input
                     id="dirt"
@@ -351,7 +382,7 @@ export default function App() {
                     55
                   </span>
                 </div>
-                <div className="slider-row">
+                <div className="slider-row audio-synth">
                   <label htmlFor="noise">NOISE</label>
                   <input
                     id="noise"
@@ -363,6 +394,20 @@ export default function App() {
                   />
                   <span className="slider-value" id="noiseValue">
                     35
+                  </span>
+                </div>
+                <div className="slider-row audio-combustion">
+                  <label htmlFor="combustion">COMBUSTION LVL</label>
+                  <input
+                    id="combustion"
+                    className="mini-slider"
+                    type="range"
+                    min="0"
+                    max="100"
+                    defaultValue="40"
+                  />
+                  <span className="slider-value" id="combustionValue">
+                    40
                   </span>
                 </div>
                 <button
@@ -534,6 +579,54 @@ export default function App() {
                 </div>
               </div>
               <div className="control-block">
+                <div className="control-label">DRIVE TUNING</div>
+                <div className="slider-row">
+                  <label htmlFor="driveSteeringLock">STEERING RANGE</label>
+                  <input id="driveSteeringLock" className="mini-slider" type="range" min="10" max="40" defaultValue="32" />
+                  <span className="slider-value" id="driveSteeringLockValue">32°</span>
+                </div>
+                <div className="slider-row">
+                  <label htmlFor="driveHighSpeedSteer">HIGH-SPEED STEER</label>
+                  <input id="driveHighSpeedSteer" className="mini-slider" type="range" min="25" max="80" defaultValue="45" />
+                  <span className="slider-value" id="driveHighSpeedSteerValue">45%</span>
+                </div>
+                <div className="slider-row">
+                  <label htmlFor="driveSteeringResponse">STEERING RESPONSE</label>
+                  <input id="driveSteeringResponse" className="mini-slider" type="range" min="2" max="14" step="0.5" defaultValue="8" />
+                  <span className="slider-value" id="driveSteeringResponseValue">8.0x</span>
+                </div>
+                <div className="slider-row">
+                  <label htmlFor="driveTurnRate">TURN RATE</label>
+                  <input id="driveTurnRate" className="mini-slider" type="range" min="5" max="18" defaultValue="14" />
+                  <span className="slider-value" id="driveTurnRateValue">0.14x</span>
+                </div>
+                <div className="slider-row">
+                  <label htmlFor="driveLaunchGain">LAUNCH GAIN</label>
+                  <input id="driveLaunchGain" className="mini-slider" type="range" min="40" max="180" defaultValue="100" />
+                  <span className="slider-value" id="driveLaunchGainValue">100%</span>
+                </div>
+                <div className="slider-row">
+                  <label htmlFor="driveBrakeForce">BRAKE FORCE</label>
+                  <input id="driveBrakeForce" className="mini-slider" type="range" min="40" max="180" defaultValue="100" />
+                  <span className="slider-value" id="driveBrakeForceValue">100%</span>
+                </div>
+                <div className="slider-row">
+                  <label htmlFor="driveCoastDecay">COAST DECAY</label>
+                  <input id="driveCoastDecay" className="mini-slider" type="range" min="20" max="150" defaultValue="72" />
+                  <span className="slider-value" id="driveCoastDecayValue">0.72x</span>
+                </div>
+                <div className="slider-row">
+                  <label htmlFor="driveCreep">IDLE CREEP</label>
+                  <input id="driveCreep" className="mini-slider" type="range" min="0" max="100" defaultValue="38" />
+                  <span className="slider-value" id="driveCreepValue">38%</span>
+                </div>
+                <div className="slider-row">
+                  <label htmlFor="driveSpeedLimit">VEHICLE SPEED LIMIT</label>
+                  <input id="driveSpeedLimit" className="mini-slider" type="range" min="12" max="40" defaultValue="24" />
+                  <span className="slider-value" id="driveSpeedLimitValue">24</span>
+                </div>
+              </div>
+              <div className="control-block">
                 <div className="control-label">GEAR RATIOS</div>
                 <div className="slider-row">
                   <label htmlFor="gear1">GEAR 1</label>
@@ -659,9 +752,25 @@ export default function App() {
                 </div>
               </div>
             </div>
+          </details>
+            </div>
           </div>
+        </details>
+      <details className="summary intro-drawer">
+        <summary className="drawer-summary">
+          <span className="summary-title">Interactive engine sandbox</span>
+          <span className="drawer-meta">HOW TO USE</span>
+          <span className="drawer-action" aria-hidden="true"></span>
+        </summary>
+        <div className="summary-body">
+          Control throttle and brake, start/stop the engine, and watch the 4‑stroke cycle in
+          real time. Tune audio, shifting, driving behavior, and gear ratios in Advanced Settings
+          to shape the sound and behavior.
         </div>
-      </section>
+      </details>
+        </aside>
+      </main>
+      <canvas id="engineCanvas" className="engine-simulation-canvas" width={640} height={640}></canvas>
     </div>
   );
 }

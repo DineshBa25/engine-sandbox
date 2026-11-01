@@ -1,3 +1,24 @@
+export type DrivetrainTelemetry = {
+  engineRpm: number;
+  crankAngle: number;
+  throttle: number;
+  brake: number;
+  vehicleSpeed: number;
+  turbineRpm: number;
+  outputRpm: number;
+  slipRpm: number;
+  speedRatio: number;
+  torqueRatio: number;
+  lockup: number;
+  inputTorque: number;
+  outputTorque: number;
+  gear: number;
+  inGear: boolean;
+  transmission: "N" | "D" | "R";
+  running: boolean;
+  turbo: boolean;
+};
+
 export function initEngine() {
   const canvas = document.getElementById("engineCanvas") as HTMLCanvasElement;
   if (!canvas) return () => {};
@@ -31,6 +52,7 @@ export function initEngine() {
   const burbleSlider = document.getElementById("burble") as HTMLInputElement | null;
   const dirtSlider = document.getElementById("dirt") as HTMLInputElement | null;
   const noiseSlider = document.getElementById("noise") as HTMLInputElement | null;
+  const combustionSlider = document.getElementById("combustion") as HTMLInputElement | null;
   const upshiftBaseSlider = document.getElementById("upshiftBase") as HTMLInputElement | null;
   const upshiftSpanSlider = document.getElementById("upshiftSpan") as HTMLInputElement | null;
   const downshiftBaseSlider = document.getElementById("downshiftBase") as HTMLInputElement | null;
@@ -61,6 +83,7 @@ export function initEngine() {
   const brakePedal = document.getElementById("brakePedal");
   const brakeFace = document.getElementById("brakeFace");
   const pedalLimit = document.getElementById("pedalLimit");
+  const audioBlock = document.getElementById("audioBlock");
 
   type Stroke = "intake" | "compression" | "combustion" | "exhaust";
 
@@ -90,6 +113,7 @@ export function initEngine() {
     singleCylinder: false,
     gear: 1,
     driveMode: "NORMAL" as "ECO" | "NORMAL" | "SPORT" | "SPORT_PLUS",
+    transmission: "D" as "N" | "D" | "R",
     inGear: true,
     shiftTimer: 0,
     shiftBlend: 0,
@@ -97,10 +121,27 @@ export function initEngine() {
     shiftFrom: 0,
     shiftTo: 0,
     vehicleSpeed: 0,
+    turbineRpm: 0,
+    outputRpm: 0,
+    converterSlip: 0,
+    converterSpeedRatio: 0,
+    converterTorqueRatio: 1,
+    converterLockup: 0,
+    converterInputTorque: 0,
+    converterOutputTorque: 0,
+    driveTuning: {
+      launchGain: 1,
+      brakeForce: 1,
+      coastDecay: 0.72,
+      creep: 0.38,
+      speedLimit: 24,
+    },
     muted: false,
     startupStage: null as null | "prime" | "crank" | "flare",
     startupStageTimer: 0,
+    audioMode: "SYNTH" as "SYNTH" | "COMBUSTION",
   };
+  if (audioBlock) audioBlock.dataset.audioMode = state.audioMode;
 
   const transmission = {
     gears: [3.2, 2.1, 1.5, 1.1, 0.9, 0.75],
@@ -149,12 +190,15 @@ export function initEngine() {
   const startupFlareDuration = 0.9;
   const vehicleParams = {
     mass: 1200,
-    wheelRadius: 0.34,
+    // Match the rendered tire radius so vehicle translation, wheel RPM, and
+    // the speed display share one physical circumference in Drive Mode.
+    wheelRadius: 1.42,
     dragCoeff: 0.25,
     rollingCoeff: 20,
     drivelineEff: 0.95,
     stallBoost: 2000,
-    powerScalar: 1.8,
+    // Preserve the prior wheel force after expressing the tire in scene units.
+    powerScalar: 7.52,
     brakeForce: 10000,
   };
   const upshiftCooldown = 1.0;
@@ -226,7 +270,13 @@ export function initEngine() {
           state.driveMode = value as typeof state.driveMode;
         }
         if (groupName === "trans") {
-          state.inGear = value === "D";
+          state.transmission = value as typeof state.transmission;
+          state.inGear = value !== "N";
+          if (value === "R") state.gear = 1;
+        }
+        if (groupName === "audioMode") {
+          state.audioMode = value as typeof state.audioMode;
+          if (audioBlock) audioBlock.dataset.audioMode = state.audioMode;
         }
       });
     });
@@ -286,13 +336,13 @@ export function initEngine() {
     }
 
     if (gearValue) {
-      gearValue.textContent = state.inGear ? `D${state.gear}` : "N";
+      gearValue.textContent = state.inGear ? `${state.transmission}${state.gear}` : "N";
     }
     if (driveValue) {
       driveValue.textContent = state.driveMode === "SPORT_PLUS" ? "SPORT+" : state.driveMode;
     }
     if (transValue) {
-      transValue.textContent = state.inGear ? "D" : "N";
+      transValue.textContent = state.transmission;
     }
     if (pedalFace) {
       const press = clamp(state.throttle / 100, 0, 1);
@@ -398,39 +448,85 @@ export function initEngine() {
 
     let rpm = state.rpm;
     const inStartup = Boolean(state.startupStage);
-    const brakeForce = (state.brake / 100) * vehicleParams.brakeForce;
+    const brakeForce =
+      (state.brake / 100) * vehicleParams.brakeForce * state.driveTuning.brakeForce;
     const brakeDecel = brakeForce / vehicleParams.mass;
 
     if (!state.running) {
       rpm *= Math.max(0, 1 - dt * 4);
       state.vehicleSpeed = Math.max(0, state.vehicleSpeed - dt * 0.6 - brakeDecel * dt);
+      state.turbineRpm += (0 - state.turbineRpm) * Math.min(dt * 8, 1);
+      state.converterLockup += (0 - state.converterLockup) * Math.min(dt * 8, 1);
+      state.converterInputTorque = 0;
+      state.converterOutputTorque = 0;
     } else if (!state.inGear || inStartup) {
       rpm += (target - rpm) * accel * dt * coastSlow;
       rpm -= rpm * brake * dt * (1 - throttleFactor) * 0.06;
       state.vehicleSpeed = Math.max(0, state.vehicleSpeed - dt * 0.3 - brakeDecel * dt);
+      state.turbineRpm += (0 - state.turbineRpm) * Math.min(dt * 5, 1);
+      state.converterLockup += (0 - state.converterLockup) * Math.min(dt * 7, 1);
+      state.converterInputTorque = 0;
+      state.converterOutputTorque = 0;
     } else {
       const gearRatio = gearRatios[state.gear - 1] * finalDrive;
       const wheelRpm =
         (state.vehicleSpeed / (Math.PI * 2 * vehicleParams.wheelRadius)) * 60;
-      const rpmFromSpeed = wheelRpm * gearRatio;
-      const stallRpm = idleTarget + throttleFactor * vehicleParams.stallBoost;
-      rpm = Math.max(rpmFromSpeed, stallRpm);
+      const turbineRpm = Math.max(0, wheelRpm * gearRatio);
+      const rawSpeedRatio = turbineRpm / Math.max(rpm, 1);
+      const speedRatio = clamp(rawSpeedRatio, 0, 1);
+      const lockupTarget =
+        state.gear > 1 &&
+        speedRatio > 0.88 &&
+        throttleFactor < 0.76 &&
+        state.shiftTimer === 0
+          ? 1
+          : 0;
+      const lockupRate = lockupTarget > state.converterLockup ? 1.6 : 3.8;
+      state.converterLockup +=
+        (lockupTarget - state.converterLockup) * Math.min(dt * lockupRate, 1);
 
-      const torqueNm = torqueCurve(Math.max(rpm, idleTarget), redline, throttleFactor);
-      const wheelTorque = torqueNm * gearRatio * vehicleParams.drivelineEff;
+      // A compact converter map: multiplication is strongest at stall and fades toward coupling.
+      const fluidTorqueRatio = 2.18 - 1.18 * Math.pow(speedRatio, 0.72);
+      const torqueRatio = fluidTorqueRatio * (1 - state.converterLockup) + state.converterLockup;
+      const efficiency = 0.42 + speedRatio * 0.5 + state.converterLockup * 0.07;
+      const engineTorque = torqueCurve(Math.max(rpm, idleTarget), redline, throttleFactor);
+      const creepTorque = throttleFactor < 0.02 ? 48 * state.driveTuning.creep : 0;
+      const turbineTorque = (engineTorque + creepTorque) * torqueRatio * efficiency;
+      const wheelTorque =
+        turbineTorque * gearRatio * vehicleParams.drivelineEff * state.driveTuning.launchGain;
       const wheelForce = wheelTorque / vehicleParams.wheelRadius;
       const dragForce =
         vehicleParams.dragCoeff * state.vehicleSpeed * state.vehicleSpeed +
         vehicleParams.rollingCoeff * state.vehicleSpeed;
-      const engineBrake = throttleFactor < 0.02 ? 120 + rpm * 0.05 : 0;
+      const engineBrake =
+        throttleFactor < 0.02 ? (120 + rpm * 0.05) * state.driveTuning.coastDecay : 0;
       const accelMs =
         (wheelForce - dragForce - engineBrake - brakeForce) / vehicleParams.mass;
-      state.vehicleSpeed = Math.max(0, state.vehicleSpeed + accelMs * dt);
+      state.vehicleSpeed = Math.min(
+        state.driveTuning.speedLimit,
+        Math.max(0, state.vehicleSpeed + accelMs * dt)
+      );
 
       const wheelRpmNext =
         (state.vehicleSpeed / (Math.PI * 2 * vehicleParams.wheelRadius)) * 60;
-      const rpmFromSpeedNext = wheelRpmNext * gearRatio;
-      rpm = Math.max(rpmFromSpeedNext, stallRpm);
+      const turbineRpmNext = Math.max(0, wheelRpmNext * gearRatio);
+      const freeRevTarget = Math.max(idleTarget, target);
+      const lockedEngineTarget = turbineRpmNext;
+      const converterLoad = (1 - speedRatio) * (0.35 + throttleFactor * 0.65);
+      const rpmTarget =
+        freeRevTarget * (1 - state.converterLockup * 0.82) +
+        lockedEngineTarget * (state.converterLockup * 0.82);
+      const engineResponse = (state.throttle > 0 ? 4.6 : 1.4) * (1 - converterLoad * 0.42);
+      rpm += (rpmTarget - rpm) * Math.max(engineResponse, 0.8) * dt;
+      rpm = Math.max(rpm, idleTarget);
+
+      state.turbineRpm = turbineRpmNext;
+      state.outputRpm = wheelRpmNext;
+      state.converterSlip = Math.max(0, rpm - turbineRpmNext);
+      state.converterSpeedRatio = clamp(turbineRpmNext / Math.max(rpm, 1), 0, 1);
+      state.converterTorqueRatio = torqueRatio;
+      state.converterInputTorque = engineTorque;
+      state.converterOutputTorque = turbineTorque;
     }
 
     if (state.limiter && rpm > redline) {
@@ -454,8 +550,33 @@ export function initEngine() {
     state.rpm = clamp(rpm, 0, redline + 800);
     state.crank += (state.rpm / 60) * Math.PI * 2 * dt;
 
+    window.dispatchEvent(
+      new CustomEvent<DrivetrainTelemetry>("engine:drivetrain", {
+        detail: {
+          engineRpm: state.rpm,
+          crankAngle: state.crank,
+          throttle: state.throttle,
+          brake: state.brake,
+          vehicleSpeed: state.vehicleSpeed,
+          turbineRpm: state.turbineRpm,
+          outputRpm: state.outputRpm,
+          slipRpm: state.converterSlip,
+          speedRatio: state.converterSpeedRatio,
+          torqueRatio: state.converterTorqueRatio,
+          lockup: state.converterLockup,
+          inputTorque: state.converterInputTorque,
+          outputTorque: state.converterOutputTorque,
+          gear: state.gear,
+          inGear: state.inGear,
+          transmission: state.transmission,
+          running: state.running,
+          turbo: state.induction === "TURBO",
+        },
+      })
+    );
+
     // Automatic shifting (with cooldown + rpm drop)
-    if (state.running && state.inGear) {
+    if (state.running && state.transmission === "D") {
       state.shiftTimer = Math.max(0, state.shiftTimer - dt);
       const profile = driveModes[state.driveMode];
       const shiftDurationValue = shiftDurationSlider
@@ -521,6 +642,8 @@ export function initEngine() {
       rpm: state.rpm,
       cylinders: config.cylinders,
       throttle: state.throttle,
+      running: state.running || Boolean(state.startupStage),
+      audioMode: state.audioMode,
       volume: state.muted ? 0 : volumeSlider ? Number(volumeSlider.value) / 100 : 0.3,
       resonance: resonanceSlider ? Number(resonanceSlider.value) / 100 : 0.4,
       rumble: rumbleSlider ? Number(rumbleSlider.value) / 100 : 0.7,
@@ -528,6 +651,7 @@ export function initEngine() {
       burble: burbleSlider ? Number(burbleSlider.value) / 100 : 0.6,
       dirt: dirtSlider ? Number(dirtSlider.value) / 100 : 0.55,
       noise: noiseSlider ? Number(noiseSlider.value) / 100 : 0.35,
+      combustion: combustionSlider ? Number(combustionSlider.value) / 100 : 0.4,
       exhaust: state.exhaust,
     });
   }
@@ -1283,6 +1407,7 @@ export function initEngine() {
   bindSliderValue("burble");
   bindSliderValue("dirt");
   bindSliderValue("noise");
+  bindSliderValue("combustion");
   bindSliderValue("upshiftBase");
   bindSliderValue("upshiftSpan");
   bindSliderValue("downshiftBase");
@@ -1294,6 +1419,15 @@ export function initEngine() {
   bindSliderValue("throttleRampUp");
   bindSliderValue("throttleRampDown");
   bindSliderValue("coastFactor");
+  bindSliderValue("driveSteeringLock", (value) => `${Math.round(value)}°`);
+  bindSliderValue("driveHighSpeedSteer", (value) => `${Math.round(value)}%`);
+  bindSliderValue("driveSteeringResponse", (value) => `${value.toFixed(1)}x`);
+  bindSliderValue("driveTurnRate", (value) => `${(value / 100).toFixed(2)}x`);
+  bindSliderValue("driveLaunchGain", (value) => `${Math.round(value)}%`);
+  bindSliderValue("driveBrakeForce", (value) => `${Math.round(value)}%`);
+  bindSliderValue("driveCoastDecay", (value) => `${(value / 100).toFixed(2)}x`);
+  bindSliderValue("driveCreep", (value) => `${Math.round(value)}%`);
+  bindSliderValue("driveSpeedLimit");
   bindSliderValue("gear1", (value) => Number(value).toFixed(2));
   bindSliderValue("gear2", (value) => Number(value).toFixed(2));
   bindSliderValue("gear3", (value) => Number(value).toFixed(2));
@@ -1381,6 +1515,34 @@ export function initEngine() {
     }
   }
 
+  // Drive Mode feeds keyboard/controller intent through one narrow event
+  // boundary. The engine remains the source of truth for throttle ramping,
+  // braking, converter slip, shifting, and resulting wheel RPM.
+  function onDriveInput(event: Event) {
+    const detail = (event as CustomEvent<{
+      throttle?: number;
+      brake?: number;
+      reset?: boolean;
+      tuning?: Partial<typeof state.driveTuning>;
+    }>).detail;
+    if (!detail) return;
+    if (typeof detail.throttle === "number") setThrottle(detail.throttle);
+    if (typeof detail.brake === "number") setBrake(detail.brake);
+    if (detail.reset) {
+      state.vehicleSpeed = 0;
+      state.outputRpm = 0;
+      state.turbineRpm = 0;
+    }
+    if (detail.tuning) {
+      state.driveTuning.launchGain = clamp(detail.tuning.launchGain ?? state.driveTuning.launchGain, 0.35, 2.2);
+      state.driveTuning.brakeForce = clamp(detail.tuning.brakeForce ?? state.driveTuning.brakeForce, 0.35, 2.2);
+      state.driveTuning.coastDecay = clamp(detail.tuning.coastDecay ?? state.driveTuning.coastDecay, 0.08, 1.5);
+      state.driveTuning.creep = clamp(detail.tuning.creep ?? state.driveTuning.creep, 0, 1.4);
+      state.driveTuning.speedLimit = clamp(detail.tuning.speedLimit ?? state.driveTuning.speedLimit, 2, 50);
+    }
+    if ((detail.throttle ?? 0) > 0) audio.resume();
+  }
+
 
   let rafId = 0;
 
@@ -1393,6 +1555,7 @@ export function initEngine() {
   burbleSlider?.addEventListener("input", onVolumeChange);
   dirtSlider?.addEventListener("input", onVolumeChange);
   noiseSlider?.addEventListener("input", onVolumeChange);
+  combustionSlider?.addEventListener("input", onVolumeChange);
   upshiftBaseSlider?.addEventListener("input", onVolumeChange);
   upshiftSpanSlider?.addEventListener("input", onVolumeChange);
   downshiftBaseSlider?.addEventListener("input", onVolumeChange);
@@ -1433,6 +1596,7 @@ export function initEngine() {
   brakePedal?.addEventListener("touchstart", onBrakeDown, { passive: true });
   brakePedal?.addEventListener("touchend", onBrakeUp);
   brakePedal?.addEventListener("touchcancel", onBrakeUp);
+  window.addEventListener("engine:drive-input", onDriveInput);
 
   handleToggleGroup();
   setupRpmDisplayToggles();
@@ -1451,6 +1615,7 @@ export function initEngine() {
     burbleSlider?.removeEventListener("input", onVolumeChange);
     dirtSlider?.removeEventListener("input", onVolumeChange);
     noiseSlider?.removeEventListener("input", onVolumeChange);
+    combustionSlider?.removeEventListener("input", onVolumeChange);
     upshiftBaseSlider?.removeEventListener("input", onVolumeChange);
     upshiftSpanSlider?.removeEventListener("input", onVolumeChange);
     downshiftBaseSlider?.removeEventListener("input", onVolumeChange);
@@ -1492,6 +1657,7 @@ export function initEngine() {
     brakePedal?.removeEventListener("touchstart", onBrakeDown);
     brakePedal?.removeEventListener("touchend", onBrakeUp);
     brakePedal?.removeEventListener("touchcancel", onBrakeUp);
+    window.removeEventListener("engine:drive-input", onDriveInput);
     sliderValueCleanups.forEach((cleanup) => cleanup());
     window.removeEventListener("resize", onResize);
     cancelAnimationFrame(rafId);
@@ -1503,6 +1669,8 @@ type AudioUpdate = {
   rpm: number;
   cylinders: number;
   throttle: number;
+  running: boolean;
+  audioMode: "SYNTH" | "COMBUSTION";
   volume: number;
   resonance: number;
   rumble: number;
@@ -1510,6 +1678,7 @@ type AudioUpdate = {
   burble: number;
   dirt: number;
   noise: number;
+  combustion: number;
   exhaust: string;
 };
 
@@ -1521,6 +1690,11 @@ function createAudioEngine() {
   const pulse = audioContext.createOscillator();
   const sub = audioContext.createOscillator();
   const noise = audioContext.createBufferSource();
+  const fireNoiseGain = audioContext.createGain();
+  const fireNoiseFilter = audioContext.createBiquadFilter();
+  const noiseFilter = audioContext.createBiquadFilter();
+  const fireThump = audioContext.createOscillator();
+  const fireThumpGain = audioContext.createGain();
   const driveGain = audioContext.createGain();
   const drive = audioContext.createWaveShaper();
   const filter = audioContext.createBiquadFilter();
@@ -1542,23 +1716,25 @@ function createAudioEngine() {
   compressor.release.value = 0.18;
 
   master.gain.value = 0.0;
-  tone.type = "sawtooth";
-  tone2.type = "triangle";
-  pulse.type = "square";
+  tone.type = "triangle";
+  tone2.type = "sine";
+  pulse.type = "triangle";
   sub.type = "sine";
   tone.frequency.value = 80;
   tone2.frequency.value = 140;
   pulse.frequency.value = 40;
   sub.frequency.value = 40;
 
-  toneGain.gain.value = 0.16;
-  tone2Gain.gain.value = 0.12;
-  pulseGain.gain.value = 0.06;
+  toneGain.gain.value = 0.1;
+  tone2Gain.gain.value = 0.07;
+  pulseGain.gain.value = 0.03;
   subGain.gain.value = 0.22;
-  noiseGain.gain.value = 0.06;
+  noiseGain.gain.value = 0.02;
+  fireNoiseGain.gain.value = 0.0001;
+  fireThumpGain.gain.value = 0.0001;
   driveGain.gain.value = 0.55;
 
-  drive.curve = makeDistortionCurve(20);
+  drive.curve = makeDistortionCurve(11);
   drive.oversample = "4x";
 
   const noiseBuffer = audioContext.createBuffer(1, audioContext.sampleRate, audioContext.sampleRate);
@@ -1577,8 +1753,22 @@ function createAudioEngine() {
   tone2Gain.connect(driveGain);
   pulseGain.connect(driveGain);
   subGain.connect(driveGain);
-  noise.connect(noiseGain);
+  noiseFilter.type = "bandpass";
+  noiseFilter.frequency.value = 420;
+  noiseFilter.Q.value = 0.65;
+  noise.connect(noiseFilter);
+  noiseFilter.connect(noiseGain);
   noiseGain.connect(driveGain);
+  fireNoiseFilter.type = "lowpass";
+  fireNoiseFilter.frequency.value = 220;
+  fireNoiseFilter.Q.value = 0.7;
+  noise.connect(fireNoiseFilter);
+  fireNoiseFilter.connect(fireNoiseGain);
+  fireNoiseGain.connect(driveGain);
+  fireThump.type = "sine";
+  fireThump.frequency.value = 90;
+  fireThump.connect(fireThumpGain);
+  fireThumpGain.connect(driveGain);
   driveGain.connect(drive);
   drive.connect(filter);
   filter.connect(compressor);
@@ -1590,8 +1780,10 @@ function createAudioEngine() {
   pulse.start();
   sub.start();
   noise.start();
+  fireThump.start();
 
   let started = false;
+  let nextFireTime = 0;
   const clampValue = (value: number, min: number, max: number) =>
     Math.min(Math.max(value, min), max);
 
@@ -1711,6 +1903,8 @@ function createAudioEngine() {
     rpm,
     cylinders,
     throttle,
+    running,
+    audioMode,
     volume,
     resonance,
     rumble,
@@ -1718,9 +1912,13 @@ function createAudioEngine() {
     burble,
     dirt,
     noise,
+    combustion,
     exhaust,
   }: AudioUpdate) {
     if (!started) return;
+    const engineOn = running && rpm > 0.1;
+    const synthOn = audioMode === "SYNTH";
+    const combustionOn = audioMode === "COMBUSTION";
     // Base frequency follows actual RPM (rev-synced)
     const firingPerSecond = Math.max((rpm / 60) * (cylinders / 2), 10);
     const base = firingPerSecond;
@@ -1728,36 +1926,82 @@ function createAudioEngine() {
     const load = throttle / 100;
     const exhaustFactor = exhaust === "STRAIGHT" ? 1.2 : 0.85;
     const burbleLevel = clampValue((1 - load) * (rpm / 3500), 0, 1) * burble;
-    const rumbleMix = 0.6 + rumble * 0.6;
-    const growlMix = 0.35 + growl * 0.9;
+    const rumbleMix = 0.42 + rumble * 0.35;
+    const growlMix = 0.4 + growl * 0.55;
 
     tone.frequency.setTargetAtTime(base * rumbleMix, audioContext.currentTime, 0.06);
-    tone2.frequency.setTargetAtTime(base * (1.35 + growlMix * 0.4), audioContext.currentTime, 0.06);
+    tone2.frequency.setTargetAtTime(base * (0.92 + growlMix * 0.18), audioContext.currentTime, 0.06);
     pulse.frequency.setTargetAtTime(
-      base * (1.9 + growlMix * 0.25),
+      base * (1.45 + growlMix * 0.2),
       audioContext.currentTime,
       0.08
     );
-    sub.frequency.setTargetAtTime(Math.max(base * (0.35 + rumble * 0.25), 18), audioContext.currentTime, 0.1);
+    sub.frequency.setTargetAtTime(Math.max(base * (0.3 + rumble * 0.16), 18), audioContext.currentTime, 0.1);
 
-    toneGain.gain.setTargetAtTime(0.08 + growl * 0.18, audioContext.currentTime, 0.08);
-    tone2Gain.gain.setTargetAtTime(0.04 + growl * 0.16, audioContext.currentTime, 0.08);
-    pulseGain.gain.setTargetAtTime(0.02 + growl * 0.08, audioContext.currentTime, 0.08);
+    toneGain.gain.setTargetAtTime(
+      synthOn ? 0.045 + growl * 0.11 : 0.0001,
+      audioContext.currentTime,
+      0.08
+    );
+    tone2Gain.gain.setTargetAtTime(
+      synthOn ? 0.025 + growl * 0.07 : 0.0001,
+      audioContext.currentTime,
+      0.08
+    );
+    pulseGain.gain.setTargetAtTime(
+      synthOn ? 0.01 + growl * 0.03 : 0.0001,
+      audioContext.currentTime,
+      0.08
+    );
     subGain.gain.setTargetAtTime(
-      0.12 + rumble * 0.24 + (1 - load) * 0.06,
+      synthOn ? 0.17 + rumble * 0.19 + (1 - load) * 0.08 : 0.0001,
       audioContext.currentTime,
       0.1
     );
 
-    driveGain.gain.setTargetAtTime(0.25 + dirt * 0.9 + load * 0.35, audioContext.currentTime, 0.08);
+    driveGain.gain.setTargetAtTime(0.22 + dirt * 0.48 + load * 0.24, audioContext.currentTime, 0.08);
+    noiseFilter.frequency.setTargetAtTime(260 + rpm / 18 + load * 160, audioContext.currentTime, 0.1);
     noiseGain.gain.setTargetAtTime(
-      (0.01 + noise * 0.08) * (0.35 + burbleLevel * 1.8),
+      engineOn && synthOn ? (0.002 + noise * 0.016) * (0.25 + burbleLevel * 0.9) : 0.0001,
       audioContext.currentTime,
       0.12
     );
+    const combustionLevel = engineOn && combustionOn ? clampValue(combustion, 0, 1) : 0;
+    if (combustionLevel <= 0.001 || firingPerSecond < 1) {
+      fireNoiseGain.gain.setTargetAtTime(0.0001, audioContext.currentTime, 0.03);
+      fireThumpGain.gain.setTargetAtTime(0.0001, audioContext.currentTime, 0.03);
+      nextFireTime = audioContext.currentTime;
+    } else {
+      const noiseIntensity = (0.02 + combustionLevel * 0.12) * (0.2 + load * 0.8);
+      const thumpIntensity = (0.04 + combustionLevel * 0.2) * (0.35 + load * 0.9);
+      const now = audioContext.currentTime;
+      const interval = 1 / firingPerSecond;
+      const lookAhead = 0.12;
+      if (nextFireTime < now) nextFireTime = now;
+      const rpmNorm = clampValue(rpm / 7000, 0, 1);
+      const thumpFreq = clampValue(base * 0.9, 55, 120);
+      fireThump.frequency.setTargetAtTime(thumpFreq, now, 0.04);
+      fireNoiseFilter.frequency.setTargetAtTime(
+        180 + load * 140 + rpmNorm * 100,
+        now,
+        0.06
+      );
+      fireNoiseFilter.Q.setTargetAtTime(0.35 + combustionLevel * 0.35, now, 0.06);
+      while (nextFireTime < now + lookAhead) {
+        const g = fireNoiseGain.gain;
+        g.setValueAtTime(0.0001, nextFireTime);
+        g.linearRampToValueAtTime(noiseIntensity, nextFireTime + 0.002);
+        g.exponentialRampToValueAtTime(0.0001, nextFireTime + 0.018);
+        const g2 = fireThumpGain.gain;
+        g2.setValueAtTime(0.0001, nextFireTime);
+        g2.linearRampToValueAtTime(thumpIntensity, nextFireTime + 0.004);
+        g2.exponentialRampToValueAtTime(0.0001, nextFireTime + 0.06);
+        nextFireTime += interval;
+      }
+    }
     const idleBoost = (1 - load) * 0.35;
     master.gain.setTargetAtTime(
-      volume * 0.55 * (0.36 + load * 0.85 + idleBoost),
+      engineOn ? volume * 0.55 * (0.36 + load * 0.85 + idleBoost) : 0,
       audioContext.currentTime,
       0.06
     );
@@ -1775,6 +2019,7 @@ function createAudioEngine() {
     pulse.stop();
     sub.stop();
     noise.stop();
+    fireThump.stop();
     audioContext.close();
   }
 
