@@ -3,8 +3,28 @@ import { initEngine } from "./engine";
 import EngineStartButton from "./components/EngineStartButton";
 import PowertrainExplorer from "./components/PowertrainExplorer";
 
+type DrawerPanel = "controls" | "telemetry" | "about" | "advanced";
+
 export default function App() {
   const [drawersOpen, setDrawersOpen] = useState(true);
+  const [openPanels, setOpenPanels] = useState<Record<DrawerPanel, boolean>>({
+    controls: true,
+    telemetry: false,
+    about: false,
+    advanced: false,
+  });
+
+  const setPanelOpen = (panel: DrawerPanel, open: boolean) => {
+    setOpenPanels((current) => ({ ...current, [panel]: open }));
+  };
+
+  const expandAllPanels = () => {
+    setOpenPanels({ controls: true, telemetry: true, about: true, advanced: true });
+  };
+
+  const collapseAllPanels = () => {
+    setOpenPanels({ controls: false, telemetry: false, about: false, advanced: false });
+  };
 
   useEffect(() => {
     const cleanup = initEngine();
@@ -34,6 +54,7 @@ export default function App() {
           type="button"
           aria-controls="simulator-drawers"
           aria-expanded={drawersOpen}
+          aria-label={drawersOpen ? "Hide simulator panels" : "Show simulator panels"}
           onClick={() => setDrawersOpen((open) => !open)}
         >
           <span>{drawersOpen ? "HIDE PANELS" : "SHOW PANELS"}</span>
@@ -46,7 +67,21 @@ export default function App() {
           className={`dashboard-drawers ${drawersOpen ? "is-open" : "is-collapsed"}`}
           aria-label="Simulator controls and telemetry"
         >
-        <details className="panel collapsible-panel telemetry-panel">
+        <div className="drawer-deck-toolbar" aria-label="Panel visibility">
+          <button type="button" className="drawer-deck-button" onClick={expandAllPanels}>
+            EXPAND ALL
+          </button>
+          <button type="button" className="drawer-deck-button" onClick={collapseAllPanels}>
+            COLLAPSE ALL
+          </button>
+        </div>
+        <details
+          className="panel collapsible-panel telemetry-panel"
+          open={openPanels.telemetry}
+          onToggle={(event) => {
+            if (event.target === event.currentTarget) setPanelOpen("telemetry", event.currentTarget.open);
+          }}
+        >
           <summary className="drawer-summary">
             <span className="panel-title">TELEMETRY</span>
             <span className="drawer-meta">RPM / STATE / TORQUE</span>
@@ -166,7 +201,13 @@ export default function App() {
           </div>
         </details>
 
-        <details className="panel collapsible-panel controls-panel" open>
+        <details
+          className="panel collapsible-panel controls-panel"
+          open={openPanels.controls}
+          onToggle={(event) => {
+            if (event.target === event.currentTarget) setPanelOpen("controls", event.currentTarget.open);
+          }}
+        >
           <summary className="drawer-summary">
             <span className="panel-title">CONTROLS</span>
             <span className="drawer-meta">PEDALS / START / CONFIG / TUNING</span>
@@ -282,7 +323,13 @@ export default function App() {
             </div>
           </div>
 
-          <details className="controls-advanced">
+          <details
+            className="controls-advanced"
+            open={openPanels.advanced}
+            onToggle={(event) => {
+              if (event.target === event.currentTarget) setPanelOpen("advanced", event.currentTarget.open);
+            }}
+          >
             <summary className="advanced-title">
               <span>ADVANCED SETTINGS</span>
               <span className="advanced-state">AUDIO / SHIFT / DRIVE / RATIOS / TIME</span>
@@ -756,7 +803,13 @@ export default function App() {
             </div>
           </div>
         </details>
-      <details className="summary intro-drawer">
+      <details
+        className="summary intro-drawer"
+        open={openPanels.about}
+        onToggle={(event) => {
+          if (event.target === event.currentTarget) setPanelOpen("about", event.currentTarget.open);
+        }}
+      >
         <summary className="drawer-summary">
           <span className="summary-title">Interactive engine sandbox</span>
           <span className="drawer-meta">HOW TO USE</span>

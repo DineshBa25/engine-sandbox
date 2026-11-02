@@ -19,6 +19,8 @@ export default function PowertrainExplorer() {
   const [bodyVisible, setBodyVisible] = useState(true);
   const [sceneMode, setSceneMode] = useState<PowertrainSceneMode>("explore");
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [powertrainHudVisible, setPowertrainHudVisible] = useState(true);
+  const [telemetryHudVisible, setTelemetryHudVisible] = useState(true);
 
   useEffect(() => {
     labelsVisibleRef.current = labelsVisible;
@@ -71,59 +73,84 @@ export default function PowertrainExplorer() {
   return (
     <section className={`converter-panel powertrain-viewport ${sceneMode === "drive" ? "drive-mode" : "explore-mode"}`} ref={viewportRef}>
       <div className="converter-heading">
-        <div className="converter-heading-copy">
-          <div className="panel-title">LIVE POWERTRAIN</div>
-          <div className="converter-subtitle">
-            {sceneMode === "drive"
-              ? "OFF-ROAD PROVING GROUND / INLINE-4 / 6-SPEED AUTOMATIC"
-              : "INLINE-4 / TORQUE CONVERTER / 6-SPEED AUTOMATIC"}
+        {powertrainHudVisible ? (
+          <div className="powertrain-command-card">
+            <div className="powertrain-command-identity">
+              <span className="powertrain-eyebrow">LIVE POWERTRAIN</span>
+              <strong className="powertrain-architecture">
+                {sceneMode === "drive"
+                  ? "OFF-ROAD PROVING GROUND"
+                  : "INLINE-4 / TORQUE CONVERTER"}
+              </strong>
+              <span className="powertrain-spec">6-SPEED AUTOMATIC</span>
+            </div>
+            <div className="powertrain-command-state">
+              <span>COUPLING STATE</span>
+              <div className={`converter-status ${readout.lockup > 0.85 ? "locked" : ""}`}>
+                {readout.lockup > 0.85 ? "LOCK-UP" : "FLUID COUPLING"}
+              </div>
+              <button
+                type="button"
+                className="hud-visibility-button"
+                onClick={() => setPowertrainHudVisible(false)}
+                aria-label="Hide live powertrain panel"
+              >
+                HIDE
+              </button>
+            </div>
+            <div className="powertrain-command-actions" aria-label="Powertrain scene controls">
+              <button
+                type="button"
+                className={`component-label-toggle drive-mode-toggle ${sceneMode === "drive" ? "active" : ""}`}
+                onClick={() => setSceneMode((mode) => (mode === "drive" ? "explore" : "drive"))}
+                aria-pressed={sceneMode === "drive"}
+              >
+                {sceneMode === "drive" ? "EXPLORE MODE" : "DRIVE MODE"}
+              </button>
+              <button
+                type="button"
+                className={`component-label-toggle ${labelsVisible ? "active" : ""}`}
+                onClick={() => setLabelsVisible((value) => !value)}
+                aria-pressed={labelsVisible}
+              >
+                {labelsVisible ? "HIDE LABELS" : "SHOW LABELS"}
+              </button>
+              <button
+                type="button"
+                className={`component-label-toggle ${cutawayEnabled ? "active" : ""}`}
+                onClick={() => setCutawayEnabled((value) => !value)}
+                aria-pressed={cutawayEnabled}
+              >
+                {cutawayEnabled ? "CUTAWAY: ON" : "CUTAWAY: OFF"}
+              </button>
+              <button
+                type="button"
+                className={`component-label-toggle body-shell-toggle ${!bodyVisible ? "active" : ""}`}
+                onClick={() => setBodyVisible((value) => !value)}
+                aria-pressed={!bodyVisible}
+              >
+                {bodyVisible ? "REMOVE BODY" : "RESTORE BODY"}
+              </button>
+              <button
+                type="button"
+                className="component-label-toggle"
+                onClick={toggleFullscreen}
+                aria-pressed={isFullscreen}
+              >
+                {isFullscreen ? "EXIT FULL SCREEN" : "FULL SCREEN"}
+              </button>
+            </div>
           </div>
+        ) : (
           <button
             type="button"
-            className={`component-label-toggle body-shell-toggle ${!bodyVisible ? "active" : ""}`}
-            onClick={() => setBodyVisible((value) => !value)}
-            aria-pressed={!bodyVisible}
+            className="hud-restore-button"
+            onClick={() => setPowertrainHudVisible(true)}
+            aria-label="Show live powertrain panel"
           >
-            {bodyVisible ? "REMOVE BODY" : "RESTORE BODY"}
+            SHOW POWERTRAIN
           </button>
-        </div>
-        <div className="converter-actions">
-          <button
-            type="button"
-            className={`component-label-toggle drive-mode-toggle ${sceneMode === "drive" ? "active" : ""}`}
-            onClick={() => setSceneMode((mode) => (mode === "drive" ? "explore" : "drive"))}
-            aria-pressed={sceneMode === "drive"}
-          >
-            {sceneMode === "drive" ? "EXPLORE MODE" : "DRIVE MODE"}
-          </button>
-          <button
-            type="button"
-            className={`component-label-toggle ${labelsVisible ? "active" : ""}`}
-            onClick={() => setLabelsVisible((value) => !value)}
-            aria-pressed={labelsVisible}
-          >
-            {labelsVisible ? "HIDE LABELS" : "SHOW LABELS"}
-          </button>
-          <button
-            type="button"
-            className={`component-label-toggle ${cutawayEnabled ? "active" : ""}`}
-            onClick={() => setCutawayEnabled((value) => !value)}
-            aria-pressed={cutawayEnabled}
-          >
-            {cutawayEnabled ? "CUTAWAY: ON" : "CUTAWAY: OFF"}
-          </button>
-          <button
-            type="button"
-            className="component-label-toggle"
-            onClick={toggleFullscreen}
-            aria-pressed={isFullscreen}
-          >
-            {isFullscreen ? "EXIT FULL SCREEN" : "FULL SCREEN"}
-          </button>
-          <div className={`converter-status ${readout.lockup > 0.85 ? "locked" : ""}`}>
-            {readout.lockup > 0.85 ? "LOCK-UP" : "FLUID COUPLING"}
-          </div>
-        </div>
+        )}
       </div>
       <div className="converter-stage-wrap">
         <div
@@ -139,22 +166,45 @@ export default function PowertrainExplorer() {
             : "DRAG TO ORBIT · SCROLL TO ZOOM"}
         </div>
       </div>
-      <div className="converter-readouts">
-        <div><span>SPEED</span><strong>{speedMph} MPH</strong></div>
-        <div><span>IMPELLER</span><strong>{Math.round(readout.engineRpm)} RPM</strong></div>
-        <div><span>TURBINE</span><strong>{Math.round(readout.turbineRpm)} RPM</strong></div>
-        <div><span>SLIP</span><strong>{Math.round(readout.slipRpm)} RPM</strong></div>
-        <div><span>TORQUE</span><strong>{readout.torqueRatio.toFixed(2)}x</strong></div>
-        <div><span>COUPLING</span><strong>{speedRatio}%</strong></div>
-        <div><span>LOCK-UP</span><strong>{lockup}%</strong></div>
-      </div>
-      <div className="converter-legend" aria-label="Torque converter legend">
-        <span><i className="legend-pump" />PUMP / IMPELLER</span>
-        <span><i className="legend-turbine" />TURBINE</span>
-        <span><i className="legend-fluid" />ATF FLOW</span>
-        <span><i className="legend-stator" />STATOR</span>
-        <span><i className="legend-exhaust" />EXHAUST PULSE</span>
-      </div>
+      {telemetryHudVisible ? (
+        <>
+          <div className="telemetry-hud">
+            <button
+              type="button"
+              className="telemetry-hud-toggle"
+              onClick={() => setTelemetryHudVisible(false)}
+              aria-label="Hide telemetry data panel"
+            >
+              HIDE DATA
+            </button>
+            <div className="converter-readouts">
+              <div><span>SPEED</span><strong>{speedMph} MPH</strong></div>
+              <div><span>IMPELLER</span><strong>{Math.round(readout.engineRpm)} RPM</strong></div>
+              <div><span>TURBINE</span><strong>{Math.round(readout.turbineRpm)} RPM</strong></div>
+              <div><span>SLIP</span><strong>{Math.round(readout.slipRpm)} RPM</strong></div>
+              <div><span>TORQUE</span><strong>{readout.torqueRatio.toFixed(2)}x</strong></div>
+              <div><span>COUPLING</span><strong>{speedRatio}%</strong></div>
+              <div><span>LOCK-UP</span><strong>{lockup}%</strong></div>
+            </div>
+          </div>
+          <div className="converter-legend" aria-label="Torque converter legend">
+            <span><i className="legend-pump" />PUMP / IMPELLER</span>
+            <span><i className="legend-turbine" />TURBINE</span>
+            <span><i className="legend-fluid" />ATF FLOW</span>
+            <span><i className="legend-stator" />STATOR</span>
+            <span><i className="legend-exhaust" />EXHAUST PULSE</span>
+          </div>
+        </>
+      ) : (
+        <button
+          type="button"
+          className="telemetry-hud-restore"
+          onClick={() => setTelemetryHudVisible(true)}
+          aria-label="Show telemetry data panel"
+        >
+          SHOW DATA
+        </button>
+      )}
     </section>
   );
 }
