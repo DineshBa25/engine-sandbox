@@ -24,12 +24,17 @@ body {
   overflow-x: hidden;
 }
 
+#root {
+  min-height: 100dvh;
+}
+
 .app {
   width: 100%;
   max-width: none;
   margin: 0 auto;
   padding: 12px var(--page-gutter) 28px;
   display: flex;
+  min-height: 100dvh;
   flex-direction: column;
   gap: 12px;
 }
@@ -193,6 +198,7 @@ details[open] > .drawer-summary .drawer-action {
 .workspace {
   position: relative;
   min-width: 0;
+  flex: 1 0 auto;
   /* Keep the control deck compact so the car remains the primary view. */
   --drawer-width: clamp(312px, 22vw, 372px);
 }
@@ -672,9 +678,9 @@ details[open] > .drawer-summary .drawer-action {
 }
 
 .drawer-rail-toggle {
-  position: fixed;
+  position: absolute;
   z-index: 13;
-  top: 50%;
+  top: 16px;
   right: calc(var(--drawer-width) + 18px);
   display: inline-flex;
   align-items: center;
@@ -691,8 +697,8 @@ details[open] > .drawer-summary .drawer-action {
   font-weight: 700;
   letter-spacing: 0.12em;
   cursor: pointer;
-  transform: translateY(-50%);
-  transition: right 180ms ease, transform 180ms ease, border-color 120ms ease, color 120ms ease;
+  transform: none;
+  transition: right 180ms ease, border-color 120ms ease, color 120ms ease;
 }
 
 .drawer-rail-toggle:hover {
@@ -707,15 +713,18 @@ details[open] > .drawer-summary .drawer-action {
 }
 
 .workspace.drawers-hidden .drawer-rail-toggle {
-  top: 84px;
-  right: 12px;
-  transform: none;
+  top: 16px;
+  right: 20px;
 }
 
 /* Reserve the right edge for the opened deck instead of allowing scene UI to
    sit underneath it. */
 .workspace.drawers-visible .powertrain-viewport .converter-heading {
   right: calc(var(--drawer-width) + 28px);
+}
+
+.workspace.drawers-visible .powertrain-command-card {
+  width: min(760px, 100%);
 }
 
 .workspace.drawers-visible .powertrain-viewport .powertrain-command-actions {
@@ -1571,8 +1580,8 @@ details[open] > .drawer-summary .drawer-action {
   }
 
   .powertrain-viewport {
-    height: clamp(420px, 66dvh, 620px);
-    min-height: 0;
+    height: calc(100dvh - 60px);
+    min-height: 420px;
   }
 
   .workspace.drawers-visible .powertrain-viewport .converter-heading,
@@ -1616,11 +1625,27 @@ details[open] > .drawer-summary .drawer-action {
 
   .drawer-rail-toggle,
   .workspace.drawers-hidden .drawer-rail-toggle {
-    top: auto;
-    right: 14px;
-    bottom: 14px;
+    top: 12px;
+    right: 12px;
+    bottom: auto;
     min-height: 38px;
     transform: none;
+  }
+
+  .workspace.drawers-hidden .drawer-rail-toggle {
+    top: auto;
+    right: 50%;
+    bottom: 14px;
+    width: 48px;
+    min-height: 44px;
+    justify-content: center;
+    padding: 0;
+    border-radius: 999px;
+    transform: translateX(50%);
+  }
+
+  .workspace.drawers-hidden .drawer-rail-toggle > span:first-child {
+    display: none;
   }
 
   .drawer-rail-icon {

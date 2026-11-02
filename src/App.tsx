@@ -59,7 +59,7 @@ export default function App() {
         >
           <span>{drawersOpen ? "HIDE PANELS" : "SHOW PANELS"}</span>
           <span className="drawer-rail-icon" aria-hidden="true">
-            {drawersOpen ? ">" : "<"}
+            {drawersOpen ? "v" : "^"}
           </span>
         </button>
         <aside
